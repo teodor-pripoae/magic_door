@@ -137,29 +137,34 @@ class MagicDoor
   # * right
   def css=(expressions)
 
-    values = { :container => [], :shadow => [], :text => [] }
+    values = { :container => [], :shadow => [], :text => [] , :word_wrap => [], :position => []}
 
     expressions.to_s.delete("\n").split(";").each do |expression|
 
       args = expression.split(":").each { |arg| arg.strip! }
+      
+      Rails.logger.info "arg: #{args.first} => #{args[1]}"
 
       if %w(width height padding left right).include?(args.first)
         values[:container] << args
       elsif args.first == "text-shadow"
         values[:shadow] << args
+      elsif args.first == "word-wrap"
+        values[:word_wrap] << args
+      elsif args.first == "top"
+        values[:position] << args
       else
         values[:text] << args
       end
 
     end
-
+    
     @css ||= {}
     @css.merge!(values) { |key, old, new|
       keys = new.collect { |e| e.first }
       old.each { |e| new << e unless keys.index(e.first) }
       new
     }
-
   end
 
   def canvas #:nodoc:
@@ -180,13 +185,19 @@ class MagicDoor
     margin_left = (get_css_property(css[:container], "left")).to_i
     margin_right = (get_css_property(css[:container], "right")).to_i
     margin = margin_left - margin_right
-    if !css[:shadow].empty?
-      args         = css[:shadow].first.last.split
-      drawing.fill = args.first
-      drawing.annotate(self.canvas, 0, 0, margin + args[1].to_i, args[2].to_i, text)
-      drawing.fill = get_css_property(css[:text], "color")
-    end
-    drawing.annotate(self.canvas, 0, 0, margin, 0, text)
+
+    unless css[:word_wrap].empty?
+      words_per_line = get_css_property(css[:word_wrap], "word-wrap").to_i
+      position = get_css_property(css[:position], "top").to_i # start position
+      
+      drawing.fill = get_css_property(css[:text], "color") 
+      word_wrap(text, words_per_line).split(/\n/).each do |row|
+        Rails.logger.info "row is #{row}, offfset: #{position + 20}"
+        drawing.annotate(self.canvas, 0, 0, 0, position += 15, row)
+      end
+    else
+      drawing.annotate(self.canvas, 0, 0, margin, 0, text)
+    end   
   end
 
   def get_css_property(stack, key)
@@ -205,6 +216,12 @@ class MagicDoor
     save_path = File.join(destination_path, name)
     canvas.write(save_path)
     save_path
+  end
+  
+  def word_wrap(text, columns = 80)
+    text.split("\n").collect do |line|
+      line.length > columns ? line.gsub(/(.{1,#{columns}})(\s+|$)/, "\\1\n").strip : line
+    end * "\n"
   end
 
   def text_width(offset = 6)
